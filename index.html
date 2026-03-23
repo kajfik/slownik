@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Słownik</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f5f5f0;
+      color: #1a1a1a;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem 4rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    header h1 {
+      font-size: 2.8rem;
+      font-weight: 700;
+      letter-spacing: -1px;
+      color: #1a1a1a;
+    }
+
+    header p {
+      margin-top: 0.4rem;
+      color: #666;
+      font-size: 0.95rem;
+    }
+
+    .search-box {
+      width: 100%;
+      max-width: 640px;
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .search-box input {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      font-size: 1.05rem;
+      border: 2px solid #ccc;
+      border-radius: 8px;
+      outline: none;
+      font-family: 'Courier New', monospace;
+      background: #fff;
+      transition: border-color 0.15s;
+    }
+
+    .search-box input:focus {
+      border-color: #4a7cf7;
+    }
+
+    .search-box input.error {
+      border-color: #e53e3e;
+    }
+
+    .search-box button {
+      padding: 0.75rem 1.4rem;
+      font-size: 1rem;
+      background: #4a7cf7;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+
+    .search-box button:hover:not(:disabled) {
+      background: #2f5fd4;
+    }
+
+    .search-box button:disabled {
+      background: #a0aec0;
+      cursor: not-allowed;
+    }
+
+    .options {
+      width: 100%;
+      max-width: 640px;
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .options label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.9rem;
+      color: #444;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .options input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: #4a7cf7;
+    }
+
+    .status {
+      width: 100%;
+      max-width: 640px;
+      margin-top: 1.25rem;
+      min-height: 1.4rem;
+      font-size: 0.9rem;
+      color: #555;
+    }
+
+    .status.error-msg {
+      color: #e53e3e;
+    }
+
+    .results {
+      width: 100%;
+      max-width: 640px;
+      margin-top: 0.5rem;
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .results-inner {
+      max-height: 60vh;
+      overflow-y: auto;
+      padding: 0.5rem 0;
+    }
+
+    .results-inner::-webkit-scrollbar { width: 6px; }
+    .results-inner::-webkit-scrollbar-track { background: transparent; }
+    .results-inner::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+
+    .word {
+      padding: 0.45rem 1.2rem;
+      font-size: 1rem;
+      border-bottom: 1px solid #f0f0f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+
+    .word:last-child { border-bottom: none; }
+
+    .word mark {
+      background: #fef08a;
+      color: inherit;
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #888;
+      font-size: 0.95rem;
+    }
+
+    .empty {
+      text-align: center;
+      padding: 2rem;
+      color: #999;
+      font-size: 0.95rem;
+    }
+
+    .limit-note {
+      text-align: center;
+      padding: 0.6rem;
+      font-size: 0.82rem;
+      color: #888;
+      border-top: 1px solid #f0f0f0;
+      background: #fafafa;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Słownik</h1>
+    <p>Wyszukiwanie słów za pomocą wyrażeń regularnych</p>
+  </header>
+
+  <div class="search-box">
+    <input
+      type="text"
+      id="pattern"
+      placeholder="np. ^przy, nik$, .*acja.*"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="off"
+      spellcheck="false"
+    >
+    <button id="searchBtn" disabled>Szukaj</button>
+  </div>
+
+  <div class="options">
+    <label>
+      <input type="checkbox" id="caseInsensitive" checked>
+      Ignoruj wielkość liter
+    </label>
+    <label>
+      <input type="checkbox" id="fullMatch">
+      Dopasowanie pełnego słowa
+    </label>
+  </div>
+
+  <div class="status" id="status">Ładowanie słownika…</div>
+
+  <div class="results" id="resultsBox" style="display:none;">
+    <div class="results-inner" id="resultsList"></div>
+    <div class="limit-note" id="limitNote" style="display:none;"></div>
+  </div>
+
+  <script>
+    const DISPLAY_LIMIT = 500;
+    let words = [];
+    let loaded = false;
+
+    const patternInput = document.getElementById('pattern');
+    const searchBtn = document.getElementById('searchBtn');
+    const statusEl = document.getElementById('status');
+    const resultsBox = document.getElementById('resultsBox');
+    const resultsList = document.getElementById('resultsList');
+    const limitNote = document.getElementById('limitNote');
+    const caseInsensitiveChk = document.getElementById('caseInsensitive');
+    const fullMatchChk = document.getElementById('fullMatch');
+
+    // Load word list
+    fetch('slowa.txt')
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then(text => {
+        words = text.split('\n').map(w => w.trim()).filter(Boolean);
+        loaded = true;
+        searchBtn.disabled = false;
+        statusEl.textContent = `Załadowano ${words.length.toLocaleString('pl-PL')} słów.`;
+        statusEl.className = 'status';
+        if (patternInput.value.trim()) search();
+      })
+      .catch(err => {
+        statusEl.textContent = `Błąd ładowania słownika: ${err.message}`;
+        statusEl.className = 'status error-msg';
+      });
+
+    function search() {
+      if (!loaded) return;
+      const raw = patternInput.value;
+      if (!raw) {
+        statusEl.textContent = `Załadowano ${words.length.toLocaleString('pl-PL')} słów.`;
+        statusEl.className = 'status';
+        resultsBox.style.display = 'none';
+        patternInput.classList.remove('error');
+        return;
+      }
+
+      let pattern = raw;
+      if (fullMatchChk.checked) {
+        pattern = `^(?:${raw})$`;
+      }
+
+      let re;
+      try {
+        re = new RegExp(pattern, caseInsensitiveChk.checked ? 'iu' : 'u');
+        patternInput.classList.remove('error');
+      } catch (e) {
+        statusEl.textContent = `Nieprawidłowe wyrażenie regularne: ${e.message}`;
+        statusEl.className = 'status error-msg';
+        patternInput.classList.add('error');
+        resultsBox.style.display = 'none';
+        return;
+      }
+
+      const matched = words.filter(w => re.test(w));
+      const count = matched.length;
+      const shown = matched.slice(0, DISPLAY_LIMIT);
+
+      statusEl.textContent = count === 0
+        ? 'Brak wyników.'
+        : `Znaleziono ${count.toLocaleString('pl-PL')} ${pluralSlowa(count)}.`;
+      statusEl.className = 'status';
+
+      if (count === 0) {
+        resultsBox.style.display = 'none';
+        return;
+      }
+
+      // Highlight regex — use a separate regex without anchors for highlighting
+      let hlRe;
+      try {
+        hlRe = new RegExp(raw, caseInsensitiveChk.checked ? 'giu' : 'gu');
+      } catch {
+        hlRe = null;
+      }
+
+      resultsList.innerHTML = shown.map(w => {
+        const safe = escapeHtml(w);
+        if (!hlRe) return `<div class="word">${safe}</div>`;
+        hlRe.lastIndex = 0;
+        const highlighted = safe.replace(hlRe, m => `<mark>${m}</mark>`);
+        return `<div class="word">${highlighted}</div>`;
+      }).join('');
+
+      if (count > DISPLAY_LIMIT) {
+        limitNote.style.display = '';
+        limitNote.textContent = `Wyświetlono ${DISPLAY_LIMIT} z ${count.toLocaleString('pl-PL')} wyników.`;
+      } else {
+        limitNote.style.display = 'none';
+      }
+
+      resultsBox.style.display = '';
+    }
+
+    function pluralSlowa(n) {
+      if (n === 1) return 'słowo';
+      const mod10 = n % 10, mod100 = n % 100;
+      if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return 'słowa';
+      return 'słów';
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    searchBtn.addEventListener('click', search);
+    patternInput.addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+    caseInsensitiveChk.addEventListener('change', () => { if (patternInput.value) search(); });
+    fullMatchChk.addEventListener('change', () => { if (patternInput.value) search(); });
+  </script>
+</body>
+</html>
