@@ -137,12 +137,95 @@
     .results-inner {
       max-height: 60vh;
       overflow-y: auto;
-      padding: 0.5rem 0;
     }
 
     .results-inner::-webkit-scrollbar { width: 6px; }
     .results-inner::-webkit-scrollbar-track { background: transparent; }
     .results-inner::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+
+    /* Groups */
+    .group {
+      border-bottom: 1px solid #ebebeb;
+    }
+
+    .group:last-child {
+      border-bottom: none;
+    }
+
+    .group > summary {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 0.55rem 1rem 0.55rem 0.75rem;
+      cursor: pointer;
+      font-size: 0.88rem;
+      color: #555;
+      user-select: none;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #fff;
+    }
+
+    .group > summary::-webkit-details-marker { display: none; }
+
+    .group > summary::before {
+      content: '▶';
+      font-size: 0.6rem;
+      color: #bbb;
+      flex-shrink: 0;
+      transition: transform 0.12s;
+    }
+
+    .group[open] > summary::before {
+      transform: rotate(90deg);
+    }
+
+    .group > summary:hover {
+      background: #f7f7f7;
+    }
+
+    .next-group-peek {
+      position: sticky;
+      bottom: 0;
+      z-index: 1;
+      padding: 0.55rem 1rem 0.55rem 0.75rem;
+      cursor: pointer;
+      font-size: 0.88rem;
+      color: #555;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #fff;
+      border-top: 1px solid #ebebeb;
+    }
+
+    .next-group-peek::before {
+      content: '▶';
+      font-size: 0.6rem;
+      color: #bbb;
+      flex-shrink: 0;
+    }
+
+    .next-group-peek:hover {
+      background: #f7f7f7;
+    }
+
+    .group-label {
+      font-family: 'Courier New', monospace;
+      flex: 1;
+    }
+
+    .group-count {
+      font-size: 0.78rem;
+      color: #bbb;
+    }
+
+    .group-words {
+      border-top: 1px solid #f0f0f0;
+    }
 
     .word {
       padding: 0.45rem 1.2rem;
@@ -174,20 +257,66 @@
       font-size: 0.95rem;
     }
 
-    .limit-note {
-      text-align: center;
-      padding: 0.6rem;
-      font-size: 0.82rem;
-      color: #888;
+    /* Pagination */
+    .pagination {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.5rem;
+      padding: 0.65rem 1rem;
       border-top: 1px solid #f0f0f0;
       background: #fafafa;
+    }
+
+    .pagination-buttons {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .pagination button {
+      padding: 0.3rem 0.7rem;
+      font-size: 0.85rem;
+      background: #4a7cf7;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+
+    .pagination button:hover:not(:disabled) {
+      background: #2f5fd4;
+    }
+
+    .pagination button:disabled {
+      background: #c8d3e8;
+      cursor: not-allowed;
+    }
+
+    .page-select {
+      font-size: 0.82rem;
+      font-family: 'Courier New', monospace;
+      padding: 0.28rem 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      color: #333;
+      cursor: pointer;
+      width: 100%;
+    }
+
+    .page-select:focus {
+      outline: none;
+      border-color: #4a7cf7;
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>Słownik</h1>
-    <p>Wyszukiwanie słów za pomocą wyrażeń regularnych</p>
+    <h3>Wyszukiwanie słów za pomocą wyrażeń regularnych</h3>
   </header>
 
   <div class="search-box">
@@ -205,10 +334,6 @@
 
   <div class="options">
     <label>
-      <input type="checkbox" id="caseInsensitive" checked>
-      Ignoruj wielkość liter
-    </label>
-    <label>
       <input type="checkbox" id="fullMatch">
       Dopasowanie pełnego słowa
     </label>
@@ -218,28 +343,46 @@
 
   <div class="results" id="resultsBox" style="display:none;">
     <div class="results-inner" id="resultsList"></div>
-    <div class="limit-note" id="limitNote" style="display:none;"></div>
+    <div class="pagination" id="pagination" style="display:none;">
+      <select class="page-select" id="pageSelect"></select>
+      <div class="pagination-buttons">
+        <button id="firstBtn" title="Cofnij o 10 stron">« −10</button>
+        <button id="prevBtn" title="Poprzednia strona">‹ Poprzednia</button>
+        <button id="nextBtn" title="Następna strona">Następna ›</button>
+        <button id="lastBtn" title="Przejdź o 10 stron do przodu">+10 »</button>
+      </div>
+    </div>
   </div>
 
   <script>
-    const DISPLAY_LIMIT = 500;
+    const WORDS_PER_GROUP = 50;
+    const GROUPS_PER_PAGE = 10;
+
     let words = [];
     let loaded = false;
+    let allMatched = [];
+    let hlRe = null;
+    let currentPage = 0;
 
     const patternInput = document.getElementById('pattern');
     const searchBtn = document.getElementById('searchBtn');
     const statusEl = document.getElementById('status');
     const resultsBox = document.getElementById('resultsBox');
     const resultsList = document.getElementById('resultsList');
-    const limitNote = document.getElementById('limitNote');
-    const caseInsensitiveChk = document.getElementById('caseInsensitive');
+    const paginationEl = document.getElementById('pagination');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const firstBtn = document.getElementById('firstBtn');
+    const lastBtn = document.getElementById('lastBtn');
+    const pageSelect = document.getElementById('pageSelect');
     const fullMatchChk = document.getElementById('fullMatch');
 
     // Load word list
-    fetch('slowa.txt')
+    fetch('slowa.gz')
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.text();
+        const ds = new DecompressionStream('gzip');
+        return new Response(r.body.pipeThrough(ds)).text();
       })
       .then(text => {
         words = text.split('\n').map(w => w.trim()).filter(Boolean);
@@ -272,7 +415,7 @@
 
       let re;
       try {
-        re = new RegExp(pattern, caseInsensitiveChk.checked ? 'iu' : 'u');
+        re = new RegExp(pattern, 'iu');
         patternInput.classList.remove('error');
       } catch (e) {
         statusEl.textContent = `Nieprawidłowe wyrażenie regularne: ${e.message}`;
@@ -282,9 +425,8 @@
         return;
       }
 
-      const matched = words.filter(w => re.test(w));
-      const count = matched.length;
-      const shown = matched.slice(0, DISPLAY_LIMIT);
+      allMatched = words.filter(w => re.test(w));
+      const count = allMatched.length;
 
       statusEl.textContent = count === 0
         ? 'Brak wyników.'
@@ -296,31 +438,100 @@
         return;
       }
 
-      // Highlight regex — use a separate regex without anchors for highlighting
-      let hlRe;
       try {
-        hlRe = new RegExp(raw, caseInsensitiveChk.checked ? 'giu' : 'gu');
+        hlRe = new RegExp(raw, 'giu');
       } catch {
         hlRe = null;
       }
 
-      resultsList.innerHTML = shown.map(w => {
-        const safe = escapeHtml(w);
-        if (!hlRe) return `<div class="word">${safe}</div>`;
-        hlRe.lastIndex = 0;
-        const highlighted = safe.replace(hlRe, m => `<mark>${m}</mark>`);
-        return `<div class="word">${highlighted}</div>`;
-      }).join('');
-
-      if (count > DISPLAY_LIMIT) {
-        limitNote.style.display = '';
-        limitNote.textContent = `Wyświetlono ${DISPLAY_LIMIT} z ${count.toLocaleString('pl-PL')} wyników.`;
-      } else {
-        limitNote.style.display = 'none';
-      }
-
+      currentPage = 0;
+      renderPage();
       resultsBox.style.display = '';
     }
+
+    function renderPage() {
+      // Build groups
+      const groups = [];
+      for (let i = 0; i < allMatched.length; i += WORDS_PER_GROUP) {
+        groups.push(allMatched.slice(i, i + WORDS_PER_GROUP));
+      }
+
+      const totalPages = Math.ceil(groups.length / GROUPS_PER_PAGE);
+      const pageGroups = groups.slice(
+        currentPage * GROUPS_PER_PAGE,
+        (currentPage + 1) * GROUPS_PER_PAGE
+      );
+      const singleGroup = groups.length === 1;
+
+      let html = '';
+      for (const group of pageGroups) {
+        const first = escapeHtml(group[0]);
+        const last = escapeHtml(group[group.length - 1]);
+        const openAttr = singleGroup ? ' open' : '';
+        html += `<details class="group"${openAttr}>`;
+        html += `<summary><span class="group-label">${first} — ${last}</span></summary>`;
+        html += `<div class="group-words">`;
+        for (const w of group) {
+          const safe = escapeHtml(w);
+          let content = safe;
+          if (hlRe) {
+            hlRe.lastIndex = 0;
+            content = safe.replace(hlRe, m => `<mark>${m}</mark>`);
+          }
+          html += `<div class="word">${content}</div>`;
+        }
+        html += `</div></details>`;
+      }
+
+      resultsList.innerHTML = html;
+      resultsList.scrollTop = 0;
+      updateNextGroupPeek();
+
+      if (totalPages > 1) {
+        paginationEl.style.display = '';
+        const wordsPerPage = GROUPS_PER_PAGE * WORDS_PER_GROUP;
+        pageSelect.innerHTML = '';
+        for (let p = 0; p < totalPages; p++) {
+          const firstWord = escapeHtml(allMatched[p * wordsPerPage]);
+          const lastWord = escapeHtml(allMatched[Math.min((p + 1) * wordsPerPage - 1, allMatched.length - 1)]);
+          const opt = document.createElement('option');
+          opt.value = p;
+          opt.textContent = `${p + 1} / ${totalPages}  (${firstWord} — ${lastWord})`;
+          if (p === currentPage) opt.selected = true;
+          pageSelect.appendChild(opt);
+        }
+        prevBtn.disabled = currentPage === 0;
+        nextBtn.disabled = currentPage === totalPages - 1;
+        firstBtn.disabled = currentPage < 10;
+        lastBtn.disabled = currentPage >= totalPages - 10;
+      } else {
+        paginationEl.style.display = 'none';
+      }
+    }
+
+    prevBtn.addEventListener('click', () => {
+      if (currentPage > 0) { currentPage--; renderPage(); }
+    });
+
+    nextBtn.addEventListener('click', () => {
+      const totalPages = Math.ceil(Math.ceil(allMatched.length / WORDS_PER_GROUP) / GROUPS_PER_PAGE);
+      if (currentPage < totalPages - 1) { currentPage++; renderPage(); }
+    });
+
+    firstBtn.addEventListener('click', () => {
+      if (currentPage >= 10) { currentPage -= 10; renderPage(); }
+    });
+
+    lastBtn.addEventListener('click', () => {
+      const totalPages = Math.ceil(Math.ceil(allMatched.length / WORDS_PER_GROUP) / GROUPS_PER_PAGE);
+      if (currentPage < totalPages - 10) { currentPage += 10; renderPage(); }
+      else if (currentPage < totalPages - 1) { currentPage = totalPages - 1; renderPage(); }
+    });
+
+    pageSelect.addEventListener('change', () => {
+      currentPage = parseInt(pageSelect.value, 10);
+      renderPage();
+    });
 
     function pluralSlowa(n) {
       if (n === 1) return 'słowo';
@@ -333,9 +544,33 @@
       return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
+    function updateNextGroupPeek() {
+      resultsList.querySelectorAll('.next-group-peek').forEach(el => el.remove());
+      const groups = resultsList.querySelectorAll('.group');
+      groups.forEach((group, i) => {
+        if (group.open && i + 1 < groups.length) {
+          const nextGroup = groups[i + 1];
+          const nextLabel = nextGroup.querySelector('.group-label').textContent;
+          const peek = document.createElement('div');
+          peek.className = 'next-group-peek';
+          peek.innerHTML = `<span class="group-label">${escapeHtml(nextLabel)}</span>`;
+          peek.addEventListener('click', () => {
+            group.open = false;
+            nextGroup.open = true;
+            updateNextGroupPeek();
+            const rect = nextGroup.getBoundingClientRect();
+            const containerRect = resultsList.getBoundingClientRect();
+            resultsList.scrollTop += rect.top - containerRect.top;
+          });
+          group.appendChild(peek);
+        }
+      });
+    }
+
+    resultsList.addEventListener('toggle', updateNextGroupPeek, true);
+
     searchBtn.addEventListener('click', search);
     patternInput.addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
-    caseInsensitiveChk.addEventListener('change', () => { if (patternInput.value) search(); });
     fullMatchChk.addEventListener('change', () => { if (patternInput.value) search(); });
   </script>
 </body>
