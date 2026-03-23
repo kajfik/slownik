@@ -337,6 +337,10 @@
       <input type="checkbox" id="fullMatch">
       Dopasowanie pełnego słowa
     </label>
+    <label>
+      <input type="checkbox" id="baseOnly">
+      Tylko formy podstawowe
+    </label>
   </div>
 
   <div class="status" id="status">Ładowanie słownika…</div>
@@ -358,8 +362,11 @@
     const WORDS_PER_GROUP = 50;
     const GROUPS_PER_PAGE = 10;
 
+    let allWords = [];
+    let baseWords = [];
     let words = [];
-    let loaded = false;
+    let allLoaded = false;
+    let baseLoaded = false;
     let allMatched = [];
     let hlRe = null;
     let currentPage = 0;
@@ -376,20 +383,44 @@
     const lastBtn = document.getElementById('lastBtn');
     const pageSelect = document.getElementById('pageSelect');
     const fullMatchChk = document.getElementById('fullMatch');
+    const baseOnlyChk = document.getElementById('baseOnly');
 
-    // Load word list
-    fetch('slowa.gz')
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const ds = new DecompressionStream('gzip');
-        return new Response(r.body.pipeThrough(ds)).text();
-      })
-      .then(text => {
-        words = text.split('\n').map(w => w.trim()).filter(Boolean);
-        loaded = true;
-        searchBtn.disabled = false;
-        statusEl.textContent = `Załadowano ${words.length.toLocaleString('pl-PL')} słów.`;
+    function loadGzWordList(url) {
+      return fetch(url)
+        .then(r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const ds = new DecompressionStream('gzip');
+          return new Response(r.body.pipeThrough(ds)).text();
+        })
+        .then(text => text.split('\n').map(w => w.trim()).filter(Boolean));
+    }
+
+    function updateActiveWordList() {
+      if (baseOnlyChk.checked && baseLoaded) {
+        words = baseWords;
+      } else {
+        words = allWords;
+      }
+    }
+
+    function showLoadStatus() {
+      const parts = [];
+      if (allLoaded) parts.push(`${allWords.length.toLocaleString('pl-PL')} słów`);
+      if (baseLoaded) parts.push(`${baseWords.length.toLocaleString('pl-PL')} form podstawowych`);
+      if (parts.length > 0) {
+        statusEl.textContent = `Załadowano ${parts.join(', ')}.`;
         statusEl.className = 'status';
+      }
+    }
+
+    // Load both word lists in parallel
+    loadGzWordList('slowa.gz')
+      .then(list => {
+        allWords = list;
+        allLoaded = true;
+        updateActiveWordList();
+        searchBtn.disabled = false;
+        showLoadStatus();
         if (patternInput.value.trim()) search();
       })
       .catch(err => {
@@ -397,8 +428,23 @@
         statusEl.className = 'status error-msg';
       });
 
+    loadGzWordList('slowa_base.gz')
+      .then(list => {
+        baseWords = list;
+        baseLoaded = true;
+        updateActiveWordList();
+        showLoadStatus();
+        if (patternInput.value.trim()) search();
+      })
+      .catch(err => {
+        // Base list is optional — just disable the checkbox
+        baseOnlyChk.disabled = true;
+        baseOnlyChk.parentElement.style.opacity = '0.5';
+        baseOnlyChk.parentElement.title = 'Nie udało się załadować listy form podstawowych';
+      });
+
     function search() {
-      if (!loaded) return;
+      if (!allLoaded) return;
       const raw = patternInput.value;
       if (!raw) {
         statusEl.textContent = `Załadowano ${words.length.toLocaleString('pl-PL')} słów.`;
@@ -572,6 +618,10 @@
     searchBtn.addEventListener('click', search);
     patternInput.addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
     fullMatchChk.addEventListener('change', () => { if (patternInput.value) search(); });
+    baseOnlyChk.addEventListener('change', () => {
+      updateActiveWordList();
+      if (patternInput.value) search();
+    });
   </script>
 </body>
 </html>
